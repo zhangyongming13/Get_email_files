@@ -5,9 +5,24 @@ import os
 import random
 import pymongo
 import re
+import sys
 from email.parser import Parser, BytesParser
 from email.utils import parseaddr
 from email.header import decode_header
+
+
+class Logger(object):
+    def __init__(self, filename='all.log', stream=sys.stdout):
+        self.terminal = stream
+        self.filename = filename
+
+    def write(self, message):
+        self.terminal.write(message)
+        with open(self.filename, 'a', encoding='utf8') as f:
+            f.write(message)
+
+    def flush(self):
+        pass
 
 
 class GetMailFiles():
@@ -134,5 +149,6 @@ class GetMailFiles():
 
 
 if __name__ == '__main__':
+    sys.stdout = Logger('all.log', sys.stdout)
     GetMailFiles = GetMailFiles()
     GetMailFiles.mail_main()
