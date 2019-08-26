@@ -47,8 +47,12 @@ class GetMailFiles():
     # subject传输的时候进行了编码，所以要进行解码操作，才能正常显示
     def decode_str(self, input_encode_string):
         value, charset = decode_header(input_encode_string)[0]
-        if charset:
-            value = value.decode(charset)
+        try:
+            if charset:
+                value = value.decode(charset)
+        except Exception as e:
+            print('因为 %s ，解码失败！' % e)
+            value = ''
         return value
 
     def get_mail_file_data(self, mail_content, path_name):
@@ -98,6 +102,9 @@ class GetMailFiles():
             hdr1, mail_from_addr = parseaddr(mail_content.get('From'))
             mail_subject = self.decode_str(mail_content.get('Subject'))
 
+            if mail_subject == '':
+                print('第 %s 封邮件解码失败！跳过!' % i)
+                continue
             if mail_from_addr == 'chendj@spdi.com.cn' and '光缆工程' in mail_subject:
                 # 去掉主题中一些特殊字符，含有这些特殊字符会无法创建文件夹
                 mail_subject_str = re.sub('[\/:*?"<>→]', '-', mail_subject)
