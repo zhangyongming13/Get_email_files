@@ -6,9 +6,12 @@ import random
 import pymongo
 import re
 import sys
-from email.parser import Parser, BytesParser
+import xlwt, xlrd
+import operator
+from email.parser import Parser
 from email.utils import parseaddr
 from email.header import decode_header
+from xlutils.copy import copy
 
 
 class Logger(object):
@@ -83,6 +86,61 @@ class GetMailFiles():
                 print('附件保存失败！因为%s' %(e))
         return return_data
 
+    def save_to_excel(self, data_to_excel):
+        head = ['邮件编号', '邮件标题', '发送人', '收件人', '邮件日期']
+        try:
+            if os.path.isfile('邮箱数据.xls'):
+                old_file = xlrd.open_workbook('邮箱数据.xls')
+                try:
+                    sheet_name = old_file.sheet_names()[0]
+                except Exception as e:
+                    sheet_name = ''
+                if sheet_name == '邮件信息':
+                    # 获取表格
+                    sheet = old_file.sheet_by_name('邮件信息')
+                    # 获取表格已有的有效行数
+                    i = sheet.nrows
+                    # 判断表头是否一致 pass
+                    if operator.eq(sheet.row_values(0), head):
+                        workbook = copy(old_file)
+                        sheet = workbook.get_sheet(0)
+                    else:
+                        # 这种情况表示已存在的xls文件的表头不对，进行修改 pass
+                        workbook = copy(old_file)
+                        sheet = workbook.get_sheet(0)
+                        for h in range(len(head)):
+                            sheet.write(0, h, head[h])
+                else:
+                    # 没有邮件信息这个表 pass
+                    workbook = copy(old_file)
+                    sheet = workbook.add_sheet('邮件信息')
+                    # 添加excel头
+                    for h in range(len(head)):
+                        sheet.write(0, h, head[h])
+                    i = 1
+
+            else:
+                # 不存在这个文件，直接创建 pass
+                workbook = xlwt.Workbook(encoding='utf-8')
+                sheet = workbook.add_sheet('邮件信息')
+                # 添加excel头
+                for h in range(len(head)):
+                    sheet.write(0, h, head[h])
+                i = 1
+
+            # 写入数据到excel文件
+            for each in data_to_excel:
+                sheet.write(i, 0, each['mail_number'])
+                sheet.write(i, 1, each['mail_subject'])
+                sheet.write(i, 2, each['mail_from_addr'])
+                sheet.write(i, 3, each['mail_to_addr'])
+                sheet.write(i, 4, each['mail_date_format'])
+                i += 1
+            workbook.save('邮箱数据.xls')
+            print('邮箱数据写入excel成功！')
+        except Exception as e:
+            print('因为 %s ，邮箱数据写入excel失败！' % e)
+
     def mail_main(self):
         server = poplib.POP3_SSL(self.pop3_server, 995)
         server.set_debuglevel(1)
@@ -93,6 +151,7 @@ class GetMailFiles():
         print('Messages: %s. Size: %s' % server.stat())
         resp, mails, octets = server.list()
 
+        data_to_excel = []
         # 遍历邮件
         for i in range(len(mails), 0, -1):
             # lines存储邮件的原始文件
@@ -106,6 +165,7 @@ class GetMailFiles():
                 print('第 %s 封邮件解码失败！跳过!' % i)
                 continue
             if mail_from_addr == 'chendj@spdi.com.cn' and '光缆工程' in mail_subject:
+
                 # 去掉主题中一些特殊字符，含有这些特殊字符会无法创建文件夹
                 mail_subject_str = re.sub('[\/:*?"<>→]', '-', mail_subject)
                 path_name = ''
@@ -121,12 +181,14 @@ class GetMailFiles():
                     print('%s-邮件已爬取！跳过！' % mail_subject)
                     continue
                 print('正在获取%s的附件文件！' % mail_subject)
+
+                # 获取邮件的附件数据，并保存到本地，同时返回数据，方便写入数据库
                 mail_file_data = self.get_mail_file_data(mail_content, path_name)
 
+                mail_item = {}
                 try:
                     # 保存邮件数据到mongo数据库，判断数据库中是否已经存在该记录了
                     if not self.mongo_object.find({'mail_subject': mail_subject}).count():
-                        mail_item = {}
                         mail_date = time.strptime(mail_content.get('Date')[0:24], '%a, %d %b %Y %H:%M:%S')
                         mail_date_format = time.strftime('%Y%m%d %H:%M:%S', mail_date)
 
@@ -146,12 +208,17 @@ class GetMailFiles():
                         mail_item['mail_file_data'] = mail_file_data
                         mongo_data_dict = dict(mail_item)
                         self.mongo_object.insert(mongo_data_dict)
+
+                        # 构建保存在excel的数据
+                        del mail_item['mail_file_data']
+                        data_to_excel.append(mail_item)
                     else:
-                        print('数据库中已存在-%s-的邮件数据库了！')
+                        print('数据库中已存在-%s-的邮件数据库了！' % mail_subject)
                 except Exception as e:
                     print('因为 %s，保存邮件数据到数据库出错！' % e)
                 time.sleep(random.randint(1, 5) + random.randint(4, 8) / 10)
         print('邮件附件下载完毕！')
+        self.save_to_excel(data_to_excel)
         server.quit()
 
 
