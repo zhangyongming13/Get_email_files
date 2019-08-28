@@ -3,7 +3,7 @@ import time
 import email
 import os
 import random
-import pymongo
+import pymysql
 import re
 import sys
 import xlwt, xlrd
@@ -28,6 +28,63 @@ class Logger(object):
         pass
 
 
+# 传入的两个参数，一个是data_to_excel写入excel的数据，是一个list，list里面包含字典
+# 字典就是要写入excel的数据
+# 第二个参数也是一个字典，data_for_xls包含head（xls的表头），sheet（xls表的名称）
+# xls_file_name（xls文件的文件名）
+def save_to_excel(data_to_excel, data_for_xls):
+    try:
+        if os.path.isfile(data_for_xls['xls_file_name']):
+            old_file = xlrd.open_workbook(data_for_xls['xls_file_name'])
+            try:
+                sheet_name = old_file.sheet_names()[0]
+            except Exception as e:
+                sheet_name = ''
+            if sheet_name == data_for_xls['sheet']:
+                # 获取表格
+                sheet = old_file.sheet_by_name(data_for_xls['sheet'])
+                # 获取表格已有的有效行数
+                i = sheet.nrows
+                # 判断表头是否一致 pass
+                if operator.eq(sheet.row_values(0), data_for_xls['head']):
+                    # 在原有的基础上直接添加数据
+                    workbook = copy(old_file)
+                    sheet = workbook.get_sheet(0)
+                else:
+                    # 这种情况表示已存在的xls文件的表头不对，进行修改 pass
+                    workbook = copy(old_file)
+                    sheet = workbook.get_sheet(0)
+                    for h in range(len(data_for_xls['head'])):
+                        sheet.write(0, h, data_for_xls['head'][h])
+            else:
+                # 没有邮件信息这个表，在邮箱数据.xls这个表基础上新建邮件信息这个sheet
+                workbook = copy(old_file)
+                sheet = workbook.add_sheet(data_for_xls['sheet'])
+                # 添加excel头
+                for h in range(len(data_for_xls['head'])):
+                    sheet.write(0, h, data_for_xls['head'][h])
+                i = 1
+        else:
+            # 不存在这个文件，直接创建邮箱数据.xls这个excel
+            workbook = xlwt.Workbook(encoding='utf-8')
+            sheet = workbook.add_sheet(data_for_xls['sheet'])
+            # 添加excel头
+            for h in range(len(data_for_xls['head'])):
+                sheet.write(0, h, data_for_xls['head'][h])
+            i = 1
+
+        # 写入数据到excel文件
+        for each in data_to_excel:
+            each_sort = sorted(each.items(), key=lambda d:d[0])
+            for j in range(len(data_for_xls['head'])):
+                sheet.write(i, j, each_sort[j][-1])
+            i += 1
+        workbook.save(data_for_xls['xls_file_name'])
+        print('邮箱数据写入excel成功！')
+    except Exception as e:
+        print('因为 %s ，邮箱数据写入excel失败！' % e)
+
+
 class GetMailFiles():
     def __init__(self):
         self.email_name = 'zhangym1@chinatelecom.cn'
@@ -35,15 +92,14 @@ class GetMailFiles():
         self.pop3_server = 'pop.chinatelecom.cn'
         self.root_path =os.getcwd().replace("\\", '/')
 
-        # 初始化mongo数据库连接
+        # 初始化mysql数据库连接
         try:
-            host = '127.0.0.1'
-            port = 27017
-            db_name = 'chinatelecom_mail'
-            sheet_name = 'chinatelecom_mail'
-            mongo_client = pymongo.MongoClient(host=host, port=port)
-            mongo_db = mongo_client[db_name]
-            self.mongo_object = mongo_db[sheet_name]
+            mysql_host = '127.0.0.1'
+            mysql_user = 'zhang'
+            mysql_pass = '19940327'
+            mysql_db = 'chinatelecom_mail'
+            self.conn = pymysql.connect(host=mysql_host, user=mysql_user, passwd=mysql_pass, db=mysql_db)
+            self.cursor = self.conn.cursor()
         except Exception as e:
             print('因为 %s，数据库连接初始化失败！' % e)
 
@@ -77,69 +133,14 @@ class GetMailFiles():
                     # 判断文件夹是否存在
                     if not os.path.exists(path_name):
                         os.makedirs(path_name)
-                    return_data.append(file_data)
                     write_file_name = re.sub('[\/:*?"<>→]', '-', str(filename))
                     with open(path_name + '\\' + str(write_file_name), 'wb') as f:
                         f.write(file_data)
                     print('附件-%s-保存成功！' % filename)
+                    return_data.append(path_name + str(write_file_name))
             except Exception as e:
                 print('附件保存失败！因为%s' %(e))
         return return_data
-
-    def save_to_excel(self, data_to_excel):
-        head = ['邮件编号', '邮件标题', '发送人', '收件人', '邮件日期']
-        try:
-            if os.path.isfile('邮箱数据.xls'):
-                old_file = xlrd.open_workbook('邮箱数据.xls')
-                try:
-                    sheet_name = old_file.sheet_names()[0]
-                except Exception as e:
-                    sheet_name = ''
-                if sheet_name == '邮件信息':
-                    # 获取表格
-                    sheet = old_file.sheet_by_name('邮件信息')
-                    # 获取表格已有的有效行数
-                    i = sheet.nrows
-                    # 判断表头是否一致 pass
-                    if operator.eq(sheet.row_values(0), head):
-                        # 在原有的基础上直接添加数据
-                        workbook = copy(old_file)
-                        sheet = workbook.get_sheet(0)
-                    else:
-                        # 这种情况表示已存在的xls文件的表头不对，进行修改
-                        workbook = copy(old_file)
-                        sheet = workbook.get_sheet(0)
-                        for h in range(len(head)):
-                            sheet.write(0, h, head[h])
-                else:
-                    # 没有邮件信息这个表，在邮箱数据.xls这个表基础上新建邮件信息这个sheet
-                    workbook = copy(old_file)
-                    sheet = workbook.add_sheet('邮件信息')
-                    # 添加excel头
-                    for h in range(len(head)):
-                        sheet.write(0, h, head[h])
-                    i = 1
-            else:
-                # 不存在这个文件，直接创建邮箱数据.xls这个excel
-                workbook = xlwt.Workbook(encoding='utf-8')
-                sheet = workbook.add_sheet('邮件信息')
-                # 添加excel头
-                for h in range(len(head)):
-                    sheet.write(0, h, head[h])
-                i = 1
-
-            # 写入数据到excel文件
-            for each in data_to_excel:
-                sheet.write(i, 0, each['mail_number'])
-                sheet.write(i, 1, each['mail_subject'])
-                sheet.write(i, 2, each['mail_from_addr'])
-                sheet.write(i, 3, each['mail_to_addr'])
-                sheet.write(i, 4, each['mail_date_format'])
-                i += 1
-            workbook.save('邮箱数据.xls')
-            print('邮箱数据写入excel成功！')
-        except Exception as e:
-            print('因为 %s ，邮箱数据写入excel失败！' % e)
 
     def mail_main(self):
         server = poplib.POP3_SSL(self.pop3_server, 995)
@@ -154,7 +155,7 @@ class GetMailFiles():
         # 保存需要写入excel的数据，爬取完毕之后一次性写入excel
         data_to_excel = []
         # 遍历邮件
-        for i in range(len(mails), 0, -1):
+        for i in range(len(mails), 832, -1):
             # lines存储邮件的原始文件
             resp, lines, octets = server.retr(i)
             mail_content = b'\r\n'.join(lines).decode('utf8')
@@ -184,11 +185,14 @@ class GetMailFiles():
                 print('正在获取%s的附件文件！' % mail_subject)
 
                 # 获取邮件的附件数据，并保存到本地，同时返回数据，方便写入数据库
-                mail_file_data = self.get_mail_file_data(mail_content, path_name)
+                mail_file_path = self.get_mail_file_data(mail_content, path_name)
                 mail_item = {}
                 try:
+                    sql_select = "select mail_id from chinatelecom_mail where mail_id = %d" % i
+                    self.cursor.execute(sql_select)
+                    if self.cursor.rowcount == 0:
                     # 保存邮件数据到mongo数据库，判断数据库中是否已经存在该记录了
-                    if not self.mongo_object.find({'mail_subject': mail_subject}).count():
+                    # if not self.mongo_object.find({'mail_subject': mail_subject}).count():
                         mail_date = time.strptime(mail_content.get('Date')[0:24], '%a, %d %b %Y %H:%M:%S')
                         mail_date_format = time.strftime('%Y%m%d %H:%M:%S', mail_date)
 
@@ -197,22 +201,22 @@ class GetMailFiles():
                         mail_to_addrs_list = list(map(self.decode_str, mail_to_addrs))
 
                         # 记录邮件序号
-                        mail_item['mail_number'] = i
+                        mail_item['a_mail_number'] = i
                         for i in range(len(mail_to_addrs)):
                             mail_to_addrs_list[i] = mail_to_addrs_list[i] + mail_to_addrs[i].split(' ')[-1]
 
-                        mail_item['mail_subject'] = mail_subject
-                        mail_item['mail_from_addr'] = mail_from_addr
-                        mail_item['mail_to_addr'] = mail_to_addrs_list
-                        mail_item['mail_date_format'] = mail_date_format
-                        mail_item['mail_file_data'] = mail_file_data
+                        mail_item['b_mail_subject'] = mail_subject
+                        mail_item['c_mail_from_addr'] = mail_from_addr
+                        mail_item['d_mail_to_addr'] = ';'.join(mail_to_addrs_list)
+                        mail_item['e_mail_date_format'] = mail_date_format
+                        mail_item['f_mail_file_path'] = ';'.join(mail_file_path)
 
-                        # 保存到mongo数据库
-                        mongo_data_dict = dict(mail_item)
-                        self.mongo_object.insert(mongo_data_dict)
-
-                        # 构建保存在excel的数据
-                        del mail_item['mail_file_data']
+                        self.cursor.execute(r'insert ignore into chinatelecom_mail values(%s,%s,%s,%s,%s,%s)',
+                                            [mail_item['a_mail_number'], mail_item['b_mail_subject'],
+                                             mail_item['c_mail_from_addr'], mail_item['d_mail_to_addr'],
+                                             mail_item['e_mail_date_format'], mail_item['f_mail_file_path']])
+                        self.conn.commit()
+                        print('邮件 %s 的相关数据已经保存到了数据库了' % mail_subject)
                         data_to_excel.append(mail_item)
                     else:
                         print('数据库中已存在-%s-的邮件数据库了！' % mail_subject)
@@ -222,7 +226,11 @@ class GetMailFiles():
         print('邮件附件下载完毕！')
 
         # 保存数据到excel文件
-        self.save_to_excel(data_to_excel)
+        data_for_xls = {}
+        data_for_xls['head'] = ['邮件编号', '邮件标题', '发送人', '收件人', '邮件日期', '邮件附件位置']
+        data_for_xls['sheet'] = '邮件信息'
+        data_for_xls['xls_file_name'] = '邮箱数据.xls'
+        save_to_excel(data_to_excel, data_for_xls)
         server.quit()
 
 
