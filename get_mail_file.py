@@ -102,25 +102,25 @@ class GetMailFiles():
                     i = sheet.nrows
                     # 判断表头是否一致 pass
                     if operator.eq(sheet.row_values(0), head):
+                        # 在原有的基础上直接添加数据
                         workbook = copy(old_file)
                         sheet = workbook.get_sheet(0)
                     else:
-                        # 这种情况表示已存在的xls文件的表头不对，进行修改 pass
+                        # 这种情况表示已存在的xls文件的表头不对，进行修改
                         workbook = copy(old_file)
                         sheet = workbook.get_sheet(0)
                         for h in range(len(head)):
                             sheet.write(0, h, head[h])
                 else:
-                    # 没有邮件信息这个表 pass
+                    # 没有邮件信息这个表，在邮箱数据.xls这个表基础上新建邮件信息这个sheet
                     workbook = copy(old_file)
                     sheet = workbook.add_sheet('邮件信息')
                     # 添加excel头
                     for h in range(len(head)):
                         sheet.write(0, h, head[h])
                     i = 1
-
             else:
-                # 不存在这个文件，直接创建 pass
+                # 不存在这个文件，直接创建邮箱数据.xls这个excel
                 workbook = xlwt.Workbook(encoding='utf-8')
                 sheet = workbook.add_sheet('邮件信息')
                 # 添加excel头
@@ -151,6 +151,7 @@ class GetMailFiles():
         print('Messages: %s. Size: %s' % server.stat())
         resp, mails, octets = server.list()
 
+        # 保存需要写入excel的数据，爬取完毕之后一次性写入excel
         data_to_excel = []
         # 遍历邮件
         for i in range(len(mails), 0, -1):
@@ -184,7 +185,6 @@ class GetMailFiles():
 
                 # 获取邮件的附件数据，并保存到本地，同时返回数据，方便写入数据库
                 mail_file_data = self.get_mail_file_data(mail_content, path_name)
-
                 mail_item = {}
                 try:
                     # 保存邮件数据到mongo数据库，判断数据库中是否已经存在该记录了
@@ -206,6 +206,8 @@ class GetMailFiles():
                         mail_item['mail_to_addr'] = mail_to_addrs_list
                         mail_item['mail_date_format'] = mail_date_format
                         mail_item['mail_file_data'] = mail_file_data
+
+                        # 保存到mongo数据库
                         mongo_data_dict = dict(mail_item)
                         self.mongo_object.insert(mongo_data_dict)
 
@@ -218,6 +220,8 @@ class GetMailFiles():
                     print('因为 %s，保存邮件数据到数据库出错！' % e)
                 time.sleep(random.randint(1, 5) + random.randint(4, 8) / 10)
         print('邮件附件下载完毕！')
+
+        # 保存数据到excel文件
         self.save_to_excel(data_to_excel)
         server.quit()
 
