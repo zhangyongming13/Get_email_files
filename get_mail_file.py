@@ -87,50 +87,53 @@ def save_to_excel(data_to_excel, data_for_xls):
         print('因为 %s ，邮箱数据写入excel失败！' % e)
 
 
-def un_zip_rar(path_name):
-    # 将windows下路径分隔符反斜杠全部替换成斜杠，避免兼容性问题
-    path_name = path_name.replace('\\', '/')
-    un_file_path = '/'.join(path_name.split('/')[0:-1]) + '/'
+def un_zip_rar(path_names):
+    # 即使传进来的文件路径有多个，但是预算文件不存在两个的情况，所以预算文件的路径就一个
     budget_file_path = ''
-    if path_name.split('.')[-1].lower() == 'zip':
-        try:
-            with zipfile.ZipFile(path_name, 'r') as f:
-                for file_name in f.namelist():
-                    # zipfile这个包默认编码是cp437，所以先转换为unicode再进行gbk编码，这样中文就不会乱码
-                    # split是去除压缩包里面的文件夹，达到只解压文件的目的
-                    right_file_name = file_name.encode('cp437').decode('gbk').split('/')[-1]
+    for path_name in path_names.split(';'):
+        # 将windows下路径分隔符反斜杠全部替换成斜杠，避免兼容性问题
+        path_name = path_name.replace('\\', '/')
+        un_file_path = '/'.join(path_name.split('/')[0:-1]) + '/'
 
-                    # 判断这个name名字是文件类型还是文件夹路径
-                    if re.match(r'.+\..+', right_file_name):
-                        right_path_file_name = un_file_path + right_file_name
+        if path_name.split('.')[-1].lower() == 'zip':
+            try:
+                with zipfile.ZipFile(path_name, 'r') as f:
+                    for file_name in f.namelist():
+                        # zipfile这个包默认编码是cp437，所以先转换为unicode再进行gbk编码，这样中文就不会乱码
+                        # split是去除压缩包里面的文件夹，达到只解压文件的目的
+                        right_file_name = file_name.encode('cp437').decode('gbk').split('/')[-1]
 
-                        if re.match(r'.+预算\..+', right_path_file_name):
-                            budget_file_path = right_path_file_name
-                        with open(right_path_file_name, 'wb') as file:
-                            with f.open(file_name, 'r') as origin_file:
-                                shutil.copyfileobj(origin_file, file)
-            print('%s 解压完毕！' % ''.join(path_name.split('/')[-1]))
-        except Exception as e:
-            print('%s 解压失败，原因：%s' % (''.join(path_name.split('/')[-1]), e))
-    elif path_name.split('.')[-1].lower() == 'rar':
-        try:
-            with rarfile.RarFile(path_name) as rar_file:
-                for name in rar_file.namelist():
+                        # 判断这个name名字是文件类型还是文件夹路径
+                        if re.match(r'.+\..+', right_file_name):
+                            right_path_file_name = un_file_path + right_file_name
 
-                    # 判断这个name名字是文件类型还是文件夹路径
-                    if re.match(r'.+\..+', name):
-                        right_path_file_name = un_file_path + name.split('/')[-1]
+                            if re.match(r'.+预算\..+', right_path_file_name):
+                                budget_file_path = right_path_file_name
+                            with open(right_path_file_name, 'wb') as file:
+                                with f.open(file_name, 'r') as origin_file:
+                                    shutil.copyfileobj(origin_file, file)
+                print('%s 解压完毕！' % ''.join(path_name.split('/')[-1]))
+            except Exception as e:
+                print('%s 解压失败，原因：%s' % (''.join(path_name.split('/')[-1]), e))
+        elif path_name.split('.')[-1].lower() == 'rar':
+            try:
+                with rarfile.RarFile(path_name) as rar_file:
+                    for name in rar_file.namelist():
 
-                        if re.match(r'.+\..+', right_path_file_name):
-                            budget_file_path = right_path_file_name
-                        with open(right_path_file_name, 'wb') as file:
-                            with rar_file.open(name, 'r') as origin_file:
-                                shutil.copyfileobj(origin_file, file)
-            print('%s 解压完毕！' % ''.join(path_name.split('/')[-1]))
-        except Exception as e:
-            print('rar文件解压失败，原因：%s' % e)
-    else:
-        print('错误的压缩包文件类型!')
+                        # 判断这个name名字是文件类型还是文件夹路径
+                        if re.match(r'.+\..+', name):
+                            right_path_file_name = un_file_path + name.split('/')[-1]
+
+                            if re.match(r'.+\..+', right_path_file_name):
+                                budget_file_path = right_path_file_name
+                            with open(right_path_file_name, 'wb') as file:
+                                with rar_file.open(name, 'r') as origin_file:
+                                    shutil.copyfileobj(origin_file, file)
+                print('%s 解压完毕！' % ''.join(path_name.split('/')[-1]))
+            except Exception as e:
+                print('rar文件解压失败，原因：%s' % e)
+        else:
+            print('错误的压缩包文件类型!')
     return budget_file_path
 
 
@@ -143,9 +146,10 @@ def get_budget_from_excel(budget_file_path):
         # print(budget_sheet.nrows)
         # print(budget_sheet.ncols)
 
-        tax_deduction_price = budget_sheet.cell_value(9, 9)  # 除税价
-        value_added_tax = budget_sheet.cell_value(9, 10)  # 增值税
-        tax_included_price = budget_sheet.cell_value(9, 11)  # 含税价
+        # round进行四舍五入的操作
+        tax_deduction_price = round(budget_sheet.cell_value(9, 9), 2)  # 除税价
+        value_added_tax = round(budget_sheet.cell_value(9, 10), 2)  # 增值税
+        tax_included_price = round(budget_sheet.cell_value(9, 11), 2)  # 含税价
         budget_dict['tax_deduction_price'] = tax_deduction_price
         budget_dict['value_added_tax'] = value_added_tax
         budget_dict['tax_included_price'] = tax_included_price
@@ -306,7 +310,8 @@ class GetMailFiles():
 if __name__ == '__main__':
     sys.stdout = Logger('all.log', sys.stdout)
     budget_path_file = un_zip_rar(
-        'J:\Python Project\Get_email_files\室分\龙华国鸿商业大厦A座-龙华国鸿商业大厦B座2F室分覆盖新建光缆工程\龙华国鸿商业大厦A座-龙华国鸿商业大厦B座2F室分覆盖新建光缆工程.zip')
+        'J:\Python Project\Get_email_files\室分\龙华国鸿商业大厦A座-龙华国鸿商业大厦B座2F室分覆盖新建光缆工程\龙华国鸿商业大厦A座-龙华国鸿商业大厦B座2F室分覆盖新建光缆工程.zip;J:/Python Project/Get_email_files/室分/龙华维德酒店FTTH机房-龙华粤商中心深圳易天龙华星河iCO三星体验店室分覆盖新建光缆工程/龙华维德酒店FTTH机房-龙华粤商中心深圳易天龙华星河iCO三星体验店室分覆盖新建光缆工程.zip')
     budget_dict = get_budget_from_excel(budget_path_file)
+    pass
     # GetMailFiles = GetMailFiles()
     # GetMailFiles.mail_main()
