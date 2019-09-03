@@ -216,102 +216,115 @@ class GetMailFiles():
         return return_data
 
     def mail_main(self):
-        server = poplib.POP3_SSL(self.pop3_server, 995)
-        server.set_debuglevel(1)
+        try:
+            server = poplib.POP3_SSL(self.pop3_server, 995)
+            server.set_debuglevel(1)
 
-        # 身份认证
-        server.user(self.email_name)
-        server.pass_(self.password)
-        print('Messages: %s. Size: %s' % server.stat())
-        resp, mails, octets = server.list()
+            # 身份认证
+            server.user(self.email_name)
+            server.pass_(self.password)
+            print('Messages: %s. Size: %s' % server.stat())
+            resp, mails, octets = server.list()
 
-        # 保存需要写入excel的数据，爬取完毕之后一次性写入excel
-        data_to_excel = []
-        # 遍历邮件
-        for i in range(len(mails), 0, -1):
-            # lines存储邮件的原始文件
-            resp, lines, octets = server.retr(i)
-            mail_content = b'\r\n'.join(lines).decode('utf8')
-            mail_content = Parser().parsestr(mail_content)
-            hdr1, mail_from_addr = parseaddr(mail_content.get('From'))
-            mail_subject = self.decode_str(mail_content.get('Subject'))
+            # 保存需要写入excel的数据，爬取完毕之后一次性写入excel
+            data_to_excel = []
+            # 遍历邮件
+            for i in range(len(mails), 851, -1):
+                # lines存储邮件的原始文件
+                resp, lines, octets = server.retr(i)
+                mail_content = b'\r\n'.join(lines).decode('utf8')
+                mail_content = Parser().parsestr(mail_content)
+                hdr1, mail_from_addr = parseaddr(mail_content.get('From'))
+                mail_subject = self.decode_str(mail_content.get('Subject'))
 
-            if mail_subject == '':
-                print('第 %s 封邮件解码失败！跳过!' % i)
-                continue
-            if mail_from_addr == 'chendj@spdi.com.cn' and '光缆工程' in mail_subject:
-
-                # 去掉主题中一些特殊字符，含有这些特殊字符会无法创建文件夹
-                mail_subject_str = re.sub('[\/:*?"<>→]', '-', mail_subject)
-                path_name = ''
-                if '室分' in mail_subject or '室内覆盖' in mail_subject:
-                    path_name = self.root_path + '/室分/' + mail_subject_str + '/'
-                elif '主干' in mail_subject:
-                    path_name = self.root_path + '/主干/' + mail_subject_str + '/'
-                else:
-                    path_name = self.root_path + '/其他/' + mail_subject_str + '/'
-
-                # 判断邮件附件是否已经保存了
-                if os.path.exists(path_name):
-                    print('%s-邮件已爬取！跳过！' % mail_subject)
+                if mail_subject == '':
+                    print('第 %s 封邮件解码失败！跳过!' % i)
                     continue
-                print('正在获取%s的附件文件！' % mail_subject)
+                if mail_from_addr == 'chendj@spdi.com.cn' and '光缆工程' in mail_subject:
 
-                # 获取邮件的附件数据，并保存到本地，同时返回数据，方便写入数据库
-                mail_file_path = self.get_mail_file_data(mail_content, path_name)
-                mail_item = {}
-                try:
-                    sql_select = "select mail_id from chinatelecom_mail where mail_id = %d" % i
-                    self.cursor.execute(sql_select)
-                    if self.cursor.rowcount == 0:
-                        # 保存邮件数据到mongo数据库，判断数据库中是否已经存在该记录了
-                        # if not self.mongo_object.find({'mail_subject': mail_subject}).count():
-                        mail_date = time.strptime(mail_content.get('Date')[0:24], '%a, %d %b %Y %H:%M:%S')
-                        mail_date_format = time.strftime('%Y%m%d %H:%M:%S', mail_date)
-
-                        # 因为存在多个收件人的情况，所以这里比获取发件人复杂
-                        mail_to_addrs = mail_content.get('To').split(',')
-                        mail_to_addrs_list = list(map(self.decode_str, mail_to_addrs))
-
-                        # 记录邮件序号
-                        mail_item['a_mail_number'] = i
-                        for i in range(len(mail_to_addrs)):
-                            mail_to_addrs_list[i] = mail_to_addrs_list[i] + mail_to_addrs[i].split(' ')[-1]
-
-                        mail_item['b_mail_subject'] = mail_subject
-                        mail_item['c_mail_from_addr'] = mail_from_addr
-                        mail_item['d_mail_to_addr'] = ';'.join(mail_to_addrs_list)
-                        mail_item['e_mail_date_format'] = mail_date_format
-                        mail_item['f_mail_file_path'] = ';'.join(mail_file_path)
-
-                        self.cursor.execute(r'insert ignore into chinatelecom_mail values(%s,%s,%s,%s,%s,%s)',
-                                            [mail_item['a_mail_number'], mail_item['b_mail_subject'],
-                                             mail_item['c_mail_from_addr'], mail_item['d_mail_to_addr'],
-                                             mail_item['e_mail_date_format'], mail_item['f_mail_file_path']])
-                        self.conn.commit()
-                        print('邮件 %s 的相关数据已经保存到了数据库了' % mail_subject)
-                        data_to_excel.append(mail_item)
+                    # 去掉主题中一些特殊字符，含有这些特殊字符会无法创建文件夹
+                    mail_subject_str = re.sub('[\/:*?"<>→]', '-', mail_subject)
+                    path_name = ''
+                    if '室分' in mail_subject or '室内覆盖' in mail_subject:
+                        path_name = self.root_path + '/室分/' + mail_subject_str + '/'
+                    elif '主干' in mail_subject:
+                        path_name = self.root_path + '/主干/' + mail_subject_str + '/'
                     else:
-                        print('数据库中已存在-%s-的邮件数据库了！' % mail_subject)
-                except Exception as e:
-                    print('因为 %s，保存邮件数据到数据库出错！' % e)
-                time.sleep(random.randint(1, 5) + random.randint(4, 8) / 10)
-        print('邮件附件下载完毕！')
+                        path_name = self.root_path + '/其他/' + mail_subject_str + '/'
 
-        # 保存数据到excel文件
-        data_for_xls = {}
-        data_for_xls['head'] = ['邮件编号', '邮件标题', '发送人', '收件人', '邮件日期', '邮件附件位置']
-        data_for_xls['sheet'] = '邮件信息'
-        data_for_xls['xls_file_name'] = '邮箱数据.xls'
-        save_to_excel(data_to_excel, data_for_xls)
-        server.quit()
+                    # 判断邮件附件是否已经保存了
+                    if os.path.exists(path_name):
+                        print('%s-邮件已爬取！跳过！' % mail_subject)
+                        continue
+                    print('正在获取%s的附件文件！' % mail_subject)
+
+                    # 获取邮件的附件数据，并保存到本地，同时返回数据，方便写入数据库
+                    mail_file_path = self.get_mail_file_data(mail_content, path_name)
+                    mail_item = {}
+                    try:
+                        sql_select = "select mail_id from chinatelecom_mail where mail_id = %d" % i
+                        self.cursor.execute(sql_select)
+                        if self.cursor.rowcount == 0:
+                            # 保存邮件数据到mongo数据库，判断数据库中是否已经存在该记录了
+                            # if not self.mongo_object.find({'mail_subject': mail_subject}).count():
+                            mail_date = time.strptime(mail_content.get('Date')[0:24], '%a, %d %b %Y %H:%M:%S')
+                            mail_date_format = time.strftime('%Y%m%d %H:%M:%S', mail_date)
+
+                            # 因为存在多个收件人的情况，所以这里比获取发件人复杂
+                            mail_to_addrs = mail_content.get('To').split(',')
+                            mail_to_addrs_list = list(map(self.decode_str, mail_to_addrs))
+
+                            # 记录邮件序号
+                            mail_item['a_mail_number'] = i
+                            for i in range(len(mail_to_addrs)):
+                                mail_to_addrs_list[i] = mail_to_addrs_list[i] + mail_to_addrs[i].split(' ')[-1]
+
+                            mail_item['b_mail_subject'] = mail_subject
+                            mail_item['c_mail_from_addr'] = mail_from_addr
+                            mail_item['d_mail_to_addr'] = ';'.join(mail_to_addrs_list)
+                            mail_item['e_mail_date_format'] = mail_date_format
+                            mail_item['f_mail_file_path'] = ';'.join(mail_file_path)
+
+                            # 进行文件压缩包解压以及预算数据的获取
+                            budget_path_file = un_zip_rar(mail_item['f_mail_file_path'])
+                            budget_dict = get_budget_from_excel(budget_path_file)
+
+                            # 分别是除税价、增值税和含税价
+                            mail_item['g_tax_deduction_price'] = budget_dict['tax_deduction_price']
+                            mail_item['h_value_added_tax'] = budget_dict['value_added_tax']
+                            mail_item['i_tax_included_price'] = budget_dict['tax_included_price']
+
+                            self.cursor.execute(
+                                r'insert ignore into chinatelecom_mail values(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                                [mail_item['a_mail_number'], mail_item['b_mail_subject'],
+                                 mail_item['c_mail_from_addr'], mail_item['d_mail_to_addr'],
+                                 mail_item['e_mail_date_format'], mail_item['f_mail_file_path'],
+                                 mail_item['g_tax_deduction_price'], mail_item['h_value_added_tax'],
+                                 mail_item['i_tax_included_price']])
+                            self.conn.commit()
+                            print('邮件 %s 的相关数据已经保存到了数据库了' % mail_subject)
+                            data_to_excel.append(mail_item)
+                        else:
+                            print('数据库中已存在-%s-的邮件数据库了！' % mail_subject)
+                    except Exception as e:
+                        print('因为 %s，保存邮件数据到数据库出错！' % e)
+                    time.sleep(random.randint(1, 5) + random.randint(4, 8) / 10)
+            print('邮件附件下载完毕！')
+
+        except Exception as e:
+            print('错误：%s' %e)
+        finally:
+            # 保存数据到excel文件
+            data_for_xls = {}
+            data_for_xls['head'] = ['邮件编号', '邮件标题', '发送人', '收件人', '邮件日期', '邮件附件位置', '除税价', '增值税', '含税价']
+            data_for_xls['sheet'] = '邮件信息'
+            data_for_xls['xls_file_name'] = '邮箱数据.xls'
+            save_to_excel(data_to_excel, data_for_xls)
+            server.quit()
+            self.conn.close()
 
 
 if __name__ == '__main__':
     sys.stdout = Logger('all.log', sys.stdout)
-    budget_path_file = un_zip_rar(
-        'J:\Python Project\Get_email_files\室分\龙华国鸿商业大厦A座-龙华国鸿商业大厦B座2F室分覆盖新建光缆工程\龙华国鸿商业大厦A座-龙华国鸿商业大厦B座2F室分覆盖新建光缆工程.zip;J:/Python Project/Get_email_files/室分/龙华维德酒店FTTH机房-龙华粤商中心深圳易天龙华星河iCO三星体验店室分覆盖新建光缆工程/龙华维德酒店FTTH机房-龙华粤商中心深圳易天龙华星河iCO三星体验店室分覆盖新建光缆工程.zip')
-    budget_dict = get_budget_from_excel(budget_path_file)
-    pass
-    # GetMailFiles = GetMailFiles()
-    # GetMailFiles.mail_main()
+    GetMailFiles = GetMailFiles()
+    GetMailFiles.mail_main()
