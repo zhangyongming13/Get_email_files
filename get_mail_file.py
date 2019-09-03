@@ -8,6 +8,8 @@ import re
 import sys
 import xlwt, xlrd
 import operator
+import zipfile, rarfile
+import shutil
 from email.parser import Parser
 from email.utils import parseaddr
 from email.header import decode_header
@@ -85,6 +87,73 @@ def save_to_excel(data_to_excel, data_for_xls):
         print('因为 %s ，邮箱数据写入excel失败！' % e)
 
 
+def un_zip_rar(path_name):
+    # 将windows下路径分隔符反斜杠全部替换成斜杠，避免兼容性问题
+    path_name = path_name.replace('\\', '/')
+    un_file_path = '/'.join(path_name.split('/')[0:-1]) + '/'
+    budget_file_path = ''
+    if path_name.split('.')[-1].lower() == 'zip':
+        try:
+            with zipfile.ZipFile(path_name, 'r') as f:
+                for file_name in f.namelist():
+                    # zipfile这个包默认编码是cp437，所以先转换为unicode再进行gbk编码，这样中文就不会乱码
+                    # split是去除压缩包里面的文件夹，达到只解压文件的目的
+                    right_file_name = file_name.encode('cp437').decode('gbk').split('/')[-1]
+
+                    # 判断这个name名字是文件类型还是文件夹路径
+                    if re.match(r'.+\..+', right_file_name):
+                        right_path_file_name = un_file_path + right_file_name
+
+                        if re.match(r'.+预算\..+', right_path_file_name):
+                            budget_file_path = right_path_file_name
+                        with open(right_path_file_name, 'wb') as file:
+                            with f.open(file_name, 'r') as origin_file:
+                                shutil.copyfileobj(origin_file, file)
+            print('%s 解压完毕！' % ''.join(path_name.split('/')[-1]))
+        except Exception as e:
+            print('%s 解压失败，原因：%s' % (''.join(path_name.split('/')[-1]), e))
+    elif path_name.split('.')[-1].lower() == 'rar':
+        try:
+            with rarfile.RarFile(path_name) as rar_file:
+                for name in rar_file.namelist():
+
+                    # 判断这个name名字是文件类型还是文件夹路径
+                    if re.match(r'.+\..+', name):
+                        right_path_file_name = un_file_path + name.split('/')[-1]
+
+                        if re.match(r'.+\..+', right_path_file_name):
+                            budget_file_path = right_path_file_name
+                        with open(right_path_file_name, 'wb') as file:
+                            with rar_file.open(name, 'r') as origin_file:
+                                shutil.copyfileobj(origin_file, file)
+            print('%s 解压完毕！' % ''.join(path_name.split('/')[-1]))
+        except Exception as e:
+            print('rar文件解压失败，原因：%s' % e)
+    else:
+        print('错误的压缩包文件类型!')
+    return budget_file_path
+
+
+def get_budget_from_excel(budget_file_path):
+    budget_dict = {}
+    try:
+        budget_workbook = xlrd.open_workbook(budget_file_path)
+        budget_sheet = budget_workbook.sheet_by_name('表一')
+        # excel表里面有效的行数和列数
+        # print(budget_sheet.nrows)
+        # print(budget_sheet.ncols)
+
+        tax_deduction_price = budget_sheet.cell_value(9, 9)  # 除税价
+        value_added_tax = budget_sheet.cell_value(9, 10)  # 增值税
+        tax_included_price = budget_sheet.cell_value(9, 11)  # 含税价
+        budget_dict['tax_deduction_price'] = tax_deduction_price
+        budget_dict['value_added_tax'] = value_added_tax
+        budget_dict['tax_included_price'] = tax_included_price
+    except Exception as e:
+        print('因为 %s 的原因，预算读取失败！' %e)
+    return budget_dict
+
+
 class GetMailFiles():
     def __init__(self):
         self.email_name = 'zhangym1@chinatelecom.cn'
@@ -155,7 +224,7 @@ class GetMailFiles():
         # 保存需要写入excel的数据，爬取完毕之后一次性写入excel
         data_to_excel = []
         # 遍历邮件
-        for i in range(len(mails), 832, -1):
+        for i in range(len(mails), 0, -1):
             # lines存储邮件的原始文件
             resp, lines, octets = server.retr(i)
             mail_content = b'\r\n'.join(lines).decode('utf8')
@@ -191,8 +260,8 @@ class GetMailFiles():
                     sql_select = "select mail_id from chinatelecom_mail where mail_id = %d" % i
                     self.cursor.execute(sql_select)
                     if self.cursor.rowcount == 0:
-                    # 保存邮件数据到mongo数据库，判断数据库中是否已经存在该记录了
-                    # if not self.mongo_object.find({'mail_subject': mail_subject}).count():
+                        # 保存邮件数据到mongo数据库，判断数据库中是否已经存在该记录了
+                        # if not self.mongo_object.find({'mail_subject': mail_subject}).count():
                         mail_date = time.strptime(mail_content.get('Date')[0:24], '%a, %d %b %Y %H:%M:%S')
                         mail_date_format = time.strftime('%Y%m%d %H:%M:%S', mail_date)
 
@@ -236,5 +305,8 @@ class GetMailFiles():
 
 if __name__ == '__main__':
     sys.stdout = Logger('all.log', sys.stdout)
-    GetMailFiles = GetMailFiles()
-    GetMailFiles.mail_main()
+    budget_path_file = un_zip_rar(
+        'J:\Python Project\Get_email_files\室分\龙华国鸿商业大厦A座-龙华国鸿商业大厦B座2F室分覆盖新建光缆工程\龙华国鸿商业大厦A座-龙华国鸿商业大厦B座2F室分覆盖新建光缆工程.zip')
+    budget_dict = get_budget_from_excel(budget_path_file)
+    # GetMailFiles = GetMailFiles()
+    # GetMailFiles.mail_main()
