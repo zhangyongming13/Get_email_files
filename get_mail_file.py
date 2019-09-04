@@ -165,6 +165,13 @@ class GetMailFiles():
         self.pop3_server = 'pop.chinatelecom.cn'
         self.root_path =os.getcwd().replace("\\", '/')
 
+        self.data_for_xls = {}
+        self.data_for_xls['head'] = ['邮件编号', '邮件标题', '发送人', '收件人', '邮件日期', '邮件附件位置', '除税价', '增值税', '含税价']
+        self.data_for_xls['sheet'] = '邮件信息'
+        self.data_for_xls['xls_file_name'] = '邮箱数据.xls'
+        # 保存需要写入excel的数据，爬取完毕之后一次性写入excel
+        self.data_to_excel = []
+
         # 初始化mysql数据库连接
         try:
             mysql_host = '127.0.0.1'
@@ -226,10 +233,11 @@ class GetMailFiles():
             print('Messages: %s. Size: %s' % server.stat())
             resp, mails, octets = server.list()
 
-            # 保存需要写入excel的数据，爬取完毕之后一次性写入excel
-            data_to_excel = []
+            # 记录又多少封邮件是符合条件的
+            flag = 0
             # 遍历邮件
-            for i in range(len(mails), 851, -1):
+            for i in range(len(mails), 555, -1):
+
                 # lines存储邮件的原始文件
                 resp, lines, octets = server.retr(i)
                 mail_content = b'\r\n'.join(lines).decode('utf8')
@@ -240,7 +248,7 @@ class GetMailFiles():
                 if mail_subject == '':
                     print('第 %s 封邮件解码失败！跳过!' % i)
                     continue
-                if mail_from_addr == 'chendj@spdi.com.cn' and '光缆工程' in mail_subject:
+                if mail_from_addr == 'chendj@spdi.com.cn' and '光缆工' in mail_subject:
 
                     # 去掉主题中一些特殊字符，含有这些特殊字符会无法创建文件夹
                     mail_subject_str = re.sub('[\/:*?"<>→]', '-', mail_subject)
@@ -276,8 +284,8 @@ class GetMailFiles():
 
                             # 记录邮件序号
                             mail_item['a_mail_number'] = i
-                            for i in range(len(mail_to_addrs)):
-                                mail_to_addrs_list[i] = mail_to_addrs_list[i] + mail_to_addrs[i].split(' ')[-1]
+                            for index in range(len(mail_to_addrs)):
+                                mail_to_addrs_list[index] = mail_to_addrs_list[index] + mail_to_addrs[index].split(' ')[-1]
 
                             mail_item['b_mail_subject'] = mail_subject
                             mail_item['c_mail_from_addr'] = mail_from_addr
@@ -303,7 +311,14 @@ class GetMailFiles():
                                  mail_item['i_tax_included_price']])
                             self.conn.commit()
                             print('邮件 %s 的相关数据已经保存到了数据库了' % mail_subject)
-                            data_to_excel.append(mail_item)
+                            self.data_to_excel.append(mail_item)
+                            flag += 1
+                            if flag % 8 == 0:
+                                # 每8个数据保存数据到excel文件
+                                save_to_excel(self.data_to_excel, self.data_for_xls)
+                                print('%s至%s，共%s条符合调教的数据已经保存到了excel中！' % (len(mails), i, flag))
+                                # 清空已经保存的数据
+                                self.data_to_excel.clear()
                         else:
                             print('数据库中已存在-%s-的邮件数据库了！' % mail_subject)
                     except Exception as e:
@@ -315,11 +330,7 @@ class GetMailFiles():
             print('错误：%s' %e)
         finally:
             # 保存数据到excel文件
-            data_for_xls = {}
-            data_for_xls['head'] = ['邮件编号', '邮件标题', '发送人', '收件人', '邮件日期', '邮件附件位置', '除税价', '增值税', '含税价']
-            data_for_xls['sheet'] = '邮件信息'
-            data_for_xls['xls_file_name'] = '邮箱数据.xls'
-            save_to_excel(data_to_excel, data_for_xls)
+            save_to_excel(self.data_to_excel, self.data_for_xls)
             server.quit()
             self.conn.close()
 
