@@ -107,7 +107,7 @@ def un_zip_rar(path_names):
                         if re.match(r'.+\..+', right_file_name):
                             right_path_file_name = un_file_path + right_file_name
 
-                            if re.match(r'.+预算\..+', right_path_file_name):
+                            if re.match(r'.+预算.+\..+', right_path_file_name):
                                 budget_file_path = right_path_file_name
                             with open(right_path_file_name, 'wb') as file:
                                 with f.open(file_name, 'r') as origin_file:
@@ -124,7 +124,7 @@ def un_zip_rar(path_names):
                         if re.match(r'.+\..+', name):
                             right_path_file_name = un_file_path + name.split('/')[-1]
 
-                            if re.match(r'.+\..+', right_path_file_name):
+                            if re.match(r'.+预算.+\..+', right_path_file_name):
                                 budget_file_path = right_path_file_name
                             with open(right_path_file_name, 'wb') as file:
                                 with rar_file.open(name, 'r') as origin_file:
@@ -139,22 +139,28 @@ def un_zip_rar(path_names):
 
 def get_budget_from_excel(budget_file_path):
     budget_dict = {}
-    try:
-        budget_workbook = xlrd.open_workbook(budget_file_path)
-        budget_sheet = budget_workbook.sheet_by_name('表一')
-        # excel表里面有效的行数和列数
-        # print(budget_sheet.nrows)
-        # print(budget_sheet.ncols)
+    if budget_file_path == '':
+        budget_dict['tax_deduction_price'] = 0
+        budget_dict['value_added_tax'] = 0
+        budget_dict['tax_included_price'] = 0
+        print('预算文件未找到，请手动记录预算情况！')
+    else:
+        try:
+            budget_workbook = xlrd.open_workbook(budget_file_path)
+            budget_sheet = budget_workbook.sheet_by_name('表一')
+            # excel表里面有效的行数和列数
+            # print(budget_sheet.nrows)
+            # print(budget_sheet.ncols)
 
-        # round进行四舍五入的操作
-        tax_deduction_price = round(budget_sheet.cell_value(9, 9), 2)  # 除税价
-        value_added_tax = round(budget_sheet.cell_value(9, 10), 2)  # 增值税
-        tax_included_price = round(budget_sheet.cell_value(9, 11), 2)  # 含税价
-        budget_dict['tax_deduction_price'] = tax_deduction_price
-        budget_dict['value_added_tax'] = value_added_tax
-        budget_dict['tax_included_price'] = tax_included_price
-    except Exception as e:
-        print('因为 %s 的原因，预算读取失败！' %e)
+            # round进行四舍五入的操作
+            tax_deduction_price = round(budget_sheet.cell_value(9, 9), 2)  # 除税价
+            value_added_tax = round(budget_sheet.cell_value(9, 10), 2)  # 增值税
+            tax_included_price = round(budget_sheet.cell_value(9, 11), 2)  # 含税价
+            budget_dict['tax_deduction_price'] = tax_deduction_price
+            budget_dict['value_added_tax'] = value_added_tax
+            budget_dict['tax_included_price'] = tax_included_price
+        except Exception as e:
+            print('因为 %s 的原因，预算读取失败！' % e)
     return budget_dict
 
 
@@ -236,7 +242,7 @@ class GetMailFiles():
             # 记录又多少封邮件是符合条件的
             flag = 0
             # 遍历邮件
-            for i in range(len(mails), 555, -1):
+            for i in range(len(mails), 0, -1):
 
                 # lines存储邮件的原始文件
                 resp, lines, octets = server.retr(i)
