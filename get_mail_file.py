@@ -194,7 +194,8 @@ class GetMailFiles():
         value, charset = decode_header(input_encode_string)[0]
         try:
             if charset:
-                value = value.decode(charset)
+                # 邮件中可能会有非法字符，所以添加ingore忽略掉
+                value = value.decode(charset, 'ignore')
         except Exception as e:
             print('因为 %s ，解码失败！' % e)
             value = ''
