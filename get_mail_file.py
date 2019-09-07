@@ -107,7 +107,7 @@ def un_zip_rar(path_names):
                         if re.match(r'.+\..+', right_file_name):
                             right_path_file_name = un_file_path + right_file_name
 
-                            if re.match(r'.+预算.+\..+', right_path_file_name):
+                            if '预算' in right_path_file_name:
                                 budget_file_path = right_path_file_name
                             with open(right_path_file_name, 'wb') as file:
                                 with f.open(file_name, 'r') as origin_file:
@@ -124,7 +124,7 @@ def un_zip_rar(path_names):
                         if re.match(r'.+\..+', name):
                             right_path_file_name = un_file_path + name.split('/')[-1]
 
-                            if re.match(r'.+预算.+\..+', right_path_file_name):
+                            if '预算' in right_path_file_name:
                                 budget_file_path = right_path_file_name
                             with open(right_path_file_name, 'wb') as file:
                                 with rar_file.open(name, 'r') as origin_file:
@@ -153,12 +153,17 @@ def get_budget_from_excel(budget_file_path):
             # print(budget_sheet.ncols)
 
             # round进行四舍五入的操作
-            tax_deduction_price = round(budget_sheet.cell_value(9, 9), 2)  # 除税价
-            value_added_tax = round(budget_sheet.cell_value(9, 10), 2)  # 增值税
-            tax_included_price = round(budget_sheet.cell_value(9, 11), 2)  # 含税价
-            budget_dict['tax_deduction_price'] = tax_deduction_price
-            budget_dict['value_added_tax'] = value_added_tax
-            budget_dict['tax_included_price'] = tax_included_price
+            for row in range(budget_sheet.nrows-1, 0, -1):
+                total_row = budget_sheet.row_values(row)
+                if '总计' in total_row:
+                    tax_deduction_price = round(total_row[-4], 2)  # 除税价
+                    value_added_tax = round(total_row[-3], 2)  # 增值税
+                    tax_included_price = round(total_row[-2], 2)  # 含税价
+                    budget_dict['tax_deduction_price'] = tax_deduction_price
+                    budget_dict['value_added_tax'] = value_added_tax
+                    budget_dict['tax_included_price'] = tax_included_price
+                    break
+
         except Exception as e:
             print('因为 %s 的原因，预算读取失败！' % e)
     return budget_dict
@@ -344,5 +349,6 @@ class GetMailFiles():
 
 if __name__ == '__main__':
     sys.stdout = Logger('all.log', sys.stdout)
+    # get_budget_from_excel('J:\Python Project\Get_email_files\室分\大浪赤岭头新一村十一巷13号FTTB机房-大浪赤岭头新一村97栋室内覆盖光缆工程\大浪赤岭头新一村十一巷13号FTTB机房-大浪赤岭头新一村97栋室内覆盖光缆工程预算.xlsx')
     GetMailFiles = GetMailFiles()
     GetMailFiles.mail_main()
