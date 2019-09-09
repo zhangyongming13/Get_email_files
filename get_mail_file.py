@@ -137,6 +137,17 @@ def un_zip_rar(path_names):
     return budget_file_path
 
 
+def save_end_to_settings_file(settings_file_path, end):
+    with open(settings_file_path, 'r', encoding='utf8') as f:
+        old_text = f.readlines()
+    with open(settings_file_path, 'w', encoding='utf8') as f:
+        for line in old_text:
+            if 'end=' in line:
+                line = 'end=' + str(end) + '\n'
+            f.write(line)
+    print('写入成功！')
+
+
 def get_budget_from_excel(budget_file_path):
     budget_dict = {}
     if budget_file_path == '':
@@ -171,9 +182,15 @@ def get_budget_from_excel(budget_file_path):
 
 class GetMailFiles():
     def __init__(self):
-        self.email_name = 'zhangym1@chinatelecom.cn'
-        self.password = 'phoenixnash13'
-        self.pop3_server = 'pop.chinatelecom.cn'
+        self.settings_file_path = 'settings.txt'
+        settings_data = self.get_settings_from_txt(self.settings_file_path)
+
+        # 邮件服务器参数初始化
+        self.email_name = settings_data['email_name']
+        self.password = settings_data['password']
+        self.pop3_server = settings_data['pop3_server']
+        self.end = settings_data['end']
+
         self.root_path =os.getcwd().replace("\\", '/')
 
         self.data_for_xls = {}
@@ -185,14 +202,59 @@ class GetMailFiles():
 
         # 初始化mysql数据库连接
         try:
-            mysql_host = '127.0.0.1'
-            mysql_user = 'zhang'
-            mysql_pass = '19940327'
-            mysql_db = 'chinatelecom_mail'
-            self.conn = pymysql.connect(host=mysql_host, user=mysql_user, passwd=mysql_pass, db=mysql_db)
+            self.conn = pymysql.connect(host=settings_data['mysql_host'], user=settings_data['mysql_user'],
+                                        passwd=settings_data['mysql_pass'], db=settings_data['mysql_db'])
             self.cursor = self.conn.cursor()
         except Exception as e:
             print('因为 %s，数据库连接初始化失败！' % e)
+
+    def get_settings_from_txt(self, settings_file_path):
+        return_data = {}
+        try:
+            with open(settings_file_path, 'r', encoding='utf8') as f:
+                settings = f.readlines()
+            for i in settings:
+                if 'email_name' in i:
+                    return_data['email_name'] = i.split('\'')[1]
+                    continue
+                if 'password' in i:
+                    return_data['password'] = i.split('\'')[1]
+                    continue
+                if 'pop3_server' in i:
+                    return_data['pop3_server'] = i.split('\'')[1]
+                    continue
+                if 'end=' in i:
+                    return_data['end'] = int(i.split('=')[1])
+                    continue
+                if 'mysql_host' in i:
+                    return_data['mysql_host'] = i.split('\'')[1]
+                    continue
+                if 'mysql_user' in i:
+                    return_data['mysql_user'] = i.split('\'')[1]
+                    continue
+                if 'mysql_pass' in i:
+                    return_data['mysql_pass'] = i.split('\'')[1]
+                    continue
+                if 'mysql_db' in i:
+                    return_data['mysql_db'] = i.split('\'')[1]
+                    continue
+            if len(return_data) < 8:
+                print('请检查配置文件是否配置完毕！')
+                return_data.clear()
+        except Exception as e:
+            print('因为%s配置数据读取错误！' % e)
+        return return_data
+
+    # 保存到爬取到的邮件的地方，下次爬取就是从最新到end这里，而不是0
+    def save_end_to_settings_file(self, settings_file_path, end):
+        with open(settings_file_path, 'r', encoding='utf8') as f:
+            old_text = f.readlines()
+        with open(settings_file_path, 'w', encoding='utf8') as f:
+            for line in old_text:
+                if 'end=' in line:
+                    line = 'end=' + str(end) + '\n'
+                f.write(line)
+        print('配置文件中end写入成功！')
 
     # subject传输的时候进行了编码，所以要进行解码操作，才能正常显示
     def decode_str(self, input_encode_string):
@@ -248,7 +310,8 @@ class GetMailFiles():
             # 记录又多少封邮件是符合条件的
             flag = 0
             # 遍历邮件
-            for i in range(len(mails), 0, -1):
+            print('正在爬取%s至%s的邮件' % (self.end, len(mails)))
+            for i in range(len(mails), self.end, -1):
 
                 # lines存储邮件的原始文件
                 resp, lines, octets = server.retr(i)
@@ -325,10 +388,10 @@ class GetMailFiles():
                             print('邮件 %s 的相关数据已经保存到了数据库了' % mail_subject)
                             self.data_to_excel.append(mail_item)
                             flag += 1
-                            if flag % 8 == 0:
+                            if flag % 8 == 0 and self.data_to_excel:
                                 # 每8个数据保存数据到excel文件
                                 save_to_excel(self.data_to_excel, self.data_for_xls)
-                                print('%s至%s，共%s条符合调教的数据已经保存到了excel中！' % (len(mails), i, flag))
+                                print('%s至%s，共%s条符合条件的数据已经保存到了excel中！' % (len(mails), i, flag))
                                 # 清空已经保存的数据
                                 self.data_to_excel.clear()
                         else:
@@ -336,13 +399,18 @@ class GetMailFiles():
                     except Exception as e:
                         print('因为 %s，保存邮件数据到数据库出错！' % e)
                     time.sleep(random.randint(1, 5) + random.randint(4, 8) / 10)
+
+            # 记录已经爬取的邮件的序号，后面就不会重复爬取了
+            if i == self.end + 1:
+                self.save_end_to_settings_file(self.settings_file_path, len(mails))
             print('邮件附件下载完毕！')
 
         except Exception as e:
             print('错误：%s' %e)
         finally:
             # 保存数据到excel文件
-            save_to_excel(self.data_to_excel, self.data_for_xls)
+            if self.data_to_excel:
+                save_to_excel(self.data_to_excel, self.data_for_xls)
             server.quit()
             self.conn.close()
 
@@ -350,5 +418,6 @@ class GetMailFiles():
 if __name__ == '__main__':
     sys.stdout = Logger('all.log', sys.stdout)
     # get_budget_from_excel('J:\Python Project\Get_email_files\室分\大浪赤岭头新一村十一巷13号FTTB机房-大浪赤岭头新一村97栋室内覆盖光缆工程\大浪赤岭头新一村十一巷13号FTTB机房-大浪赤岭头新一村97栋室内覆盖光缆工程预算.xlsx')
+    # save_end_to_settings_file('settings.txt', 777)
     GetMailFiles = GetMailFiles()
     GetMailFiles.mail_main()
