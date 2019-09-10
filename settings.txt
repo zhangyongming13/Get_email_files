@@ -1,8 +1,0 @@
-email_name='zhangym1@chinatelecom.cn'
-password='phoenixnash13'
-pop3_server='pop.chinatelecom.cn'
-end=917
-mysql_host='127.0.0.1'
-mysql_user='zhang'
-mysql_pass='19940327'
-mysql_db='chinatelecom_mail'
