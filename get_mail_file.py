@@ -418,6 +418,5 @@ class GetMailFiles():
 if __name__ == '__main__':
     sys.stdout = Logger('all.log', sys.stdout)
     # get_budget_from_excel('J:\Python Project\Get_email_files\室分\大浪赤岭头新一村十一巷13号FTTB机房-大浪赤岭头新一村97栋室内覆盖光缆工程\大浪赤岭头新一村十一巷13号FTTB机房-大浪赤岭头新一村97栋室内覆盖光缆工程预算.xlsx')
-    # save_end_to_settings_file('settings.txt', 777)
     GetMailFiles = GetMailFiles()
     GetMailFiles.mail_main()
