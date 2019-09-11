@@ -208,6 +208,21 @@ class GetMailFiles():
         except Exception as e:
             print('因为 %s，数据库连接初始化失败！' % e)
 
+    # 将存储于chinatelecom_mail的邮箱数据写入到chinatelecom_mails_files
+    # 前期mail_id不是自增的，而是邮件在服务器的序号，这样的话会出现问题，服务器删除之后，新邮件数据写入的时候
+    # 可能会造成mail_id（主键重复）
+    def move_database_data(self):
+        sql_select = "select * from chinatelecom_mail"
+        self.cursor.execute(sql_select)
+        result = self.cursor.fetchall()
+        for row in result:
+            print(row)
+            self.cursor.execute(
+                r'insert ignore into chinatelecom_mails_files values(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                [0, row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8]])
+        self.conn.commit()
+        print('转移数据成功！')
+
     def get_settings_from_txt(self, settings_file_path):
         return_data = {}
         try:
@@ -315,7 +330,11 @@ class GetMailFiles():
 
                 # lines存储邮件的原始文件
                 resp, lines, octets = server.retr(i)
-                mail_content = b'\r\n'.join(lines).decode('utf8')
+                try:
+                    mail_content = b'\r\n'.join(lines).decode('ANSI')
+                except:
+                    print('邮件编码不是ansi，跳过！')
+                    continue
                 mail_content = Parser().parsestr(mail_content)
                 hdr1, mail_from_addr = parseaddr(mail_content.get('From'))
                 mail_subject = self.decode_str(mail_content.get('Subject'))
@@ -378,8 +397,8 @@ class GetMailFiles():
                             mail_item['i_tax_included_price'] = budget_dict['tax_included_price']
 
                             self.cursor.execute(
-                                r'insert ignore into chinatelecom_mail values(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-                                [mail_item['a_mail_number'], mail_item['b_mail_subject'],
+                                r'insert ignore into chinatelecom_mails_files values(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                                [0, mail_item['b_mail_subject'],
                                  mail_item['c_mail_from_addr'], mail_item['d_mail_to_addr'],
                                  mail_item['e_mail_date_format'], mail_item['f_mail_file_path'],
                                  mail_item['g_tax_deduction_price'], mail_item['h_value_added_tax'],
@@ -417,6 +436,5 @@ class GetMailFiles():
 
 if __name__ == '__main__':
     sys.stdout = Logger('all.log', sys.stdout)
-    # get_budget_from_excel('J:\Python Project\Get_email_files\室分\大浪赤岭头新一村十一巷13号FTTB机房-大浪赤岭头新一村97栋室内覆盖光缆工程\大浪赤岭头新一村十一巷13号FTTB机房-大浪赤岭头新一村97栋室内覆盖光缆工程预算.xlsx')
     GetMailFiles = GetMailFiles()
     GetMailFiles.mail_main()
