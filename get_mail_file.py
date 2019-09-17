@@ -189,7 +189,6 @@ class GetMailFiles():
         self.email_name = settings_data['email_name']
         self.password = settings_data['password']
         self.pop3_server = settings_data['pop3_server']
-        self.end = settings_data['end']
 
         self.root_path =os.getcwd().replace("\\", '/')
 
@@ -212,13 +211,13 @@ class GetMailFiles():
     # 前期mail_id不是自增的，而是邮件在服务器的序号，这样的话会出现问题，服务器删除之后，新邮件数据写入的时候
     # 可能会造成mail_id（主键重复）
     def move_database_data(self):
-        sql_select = "select * from chinatelecom_mail"
+        sql_select = "select * from chinatelecom_mails_files"
         self.cursor.execute(sql_select)
         result = self.cursor.fetchall()
         for row in result:
             print(row)
             self.cursor.execute(
-                r'insert ignore into chinatelecom_mails_files values(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                r'insert ignore into chinatelecom_mail_files values(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                 [0, row[1], row[2], row[3], row[4], row[5], row[6], row[7], row[8]])
         self.conn.commit()
         print('转移数据成功！')
@@ -325,8 +324,7 @@ class GetMailFiles():
             # 记录又多少封邮件是符合条件的
             flag = 0
             # 遍历邮件
-            print('正在爬取%s至%s的邮件' % (self.end, len(mails)))
-            for i in range(len(mails), self.end, -1):
+            for i in range(len(mails), 0, -1):
 
                 # lines存储邮件的原始文件
                 resp, lines, octets = server.retr(i)
@@ -354,74 +352,80 @@ class GetMailFiles():
                     else:
                         path_name = self.root_path + '/其他/' + mail_subject_str + '/'
 
-                    # 判断邮件附件是否已经保存了
+                    # 判断邮件附件是否已经保存了,由于都是顺序爬取的，遇到有保存到本地的话，后天的视为都已经爬取过了
                     if os.path.exists(path_name):
                         print('%s-邮件已爬取！跳过！' % mail_subject)
-                        continue
+                        break
                     print('正在获取%s的附件文件！' % mail_subject)
 
                     # 获取邮件的附件数据，并保存到本地，同时返回数据，方便写入数据库
                     mail_file_path = self.get_mail_file_data(mail_content, path_name)
                     mail_item = {}
                     try:
-                        sql_select = "select mail_id from chinatelecom_mail where mail_id = %d" % i
-                        self.cursor.execute(sql_select)
-                        if self.cursor.rowcount == 0:
-                            # 保存邮件数据到mongo数据库，判断数据库中是否已经存在该记录了
-                            # if not self.mongo_object.find({'mail_subject': mail_subject}).count():
-                            mail_date = time.strptime(mail_content.get('Date')[0:24], '%a, %d %b %Y %H:%M:%S')
-                            mail_date_format = time.strftime('%Y%m%d %H:%M:%S', mail_date)
+                        # 获取邮件中相关数据
+                        mail_date = time.strptime(mail_content.get('Date')[0:24], '%a, %d %b %Y %H:%M:%S')
+                        mail_date_format = time.strftime('%Y%m%d %H:%M:%S', mail_date)
+                        # 因为存在多个收件人的情况，所以这里比获取发件人复杂
+                        mail_to_addrs = mail_content.get('To').split(',')
+                        mail_to_addrs_list = list(map(self.decode_str, mail_to_addrs))
+                        # 记录邮件序号，并构建邮件收件人数据
+                        mail_item['a_mail_number'] = i
+                        for index in range(len(mail_to_addrs)):
+                            mail_to_addrs_list[index] = mail_to_addrs_list[index] + mail_to_addrs[index].split(' ')[-1]
 
-                            # 因为存在多个收件人的情况，所以这里比获取发件人复杂
-                            mail_to_addrs = mail_content.get('To').split(',')
-                            mail_to_addrs_list = list(map(self.decode_str, mail_to_addrs))
+                        mail_item['b_mail_subject'] = mail_subject
+                        mail_item['c_mail_from_addr'] = mail_from_addr
+                        mail_item['d_mail_to_addr'] = ';'.join(mail_to_addrs_list)
+                        mail_item['e_mail_date_format'] = mail_date_format
+                        mail_item['f_mail_file_path'] = ';'.join(mail_file_path)
 
-                            # 记录邮件序号
-                            mail_item['a_mail_number'] = i
-                            for index in range(len(mail_to_addrs)):
-                                mail_to_addrs_list[index] = mail_to_addrs_list[index] + mail_to_addrs[index].split(' ')[-1]
+                        # 进行文件压缩包解压以及预算数据的获取
+                        budget_path_file = un_zip_rar(mail_item['f_mail_file_path'])
+                        budget_dict = get_budget_from_excel(budget_path_file)
 
-                            mail_item['b_mail_subject'] = mail_subject
-                            mail_item['c_mail_from_addr'] = mail_from_addr
-                            mail_item['d_mail_to_addr'] = ';'.join(mail_to_addrs_list)
-                            mail_item['e_mail_date_format'] = mail_date_format
-                            mail_item['f_mail_file_path'] = ';'.join(mail_file_path)
+                        # 分别是除税价、增值税和含税价
+                        mail_item['g_tax_deduction_price'] = budget_dict['tax_deduction_price']
+                        mail_item['h_value_added_tax'] = budget_dict['value_added_tax']
+                        mail_item['i_tax_included_price'] = budget_dict['tax_included_price']
 
-                            # 进行文件压缩包解压以及预算数据的获取
-                            budget_path_file = un_zip_rar(mail_item['f_mail_file_path'])
-                            budget_dict = get_budget_from_excel(budget_path_file)
+                        # 尝试从数据库中获取有没有当前mail_subject的邮件数据，replace_or_insert用来记录
+                        # replace into是replace还是insert
+                        sql_select = "select mail_id from chinatelecom_mail_files where mail_subject = " + '\'' + mail_subject + '\''
+                        replace_or_insert = self.cursor.execute(sql_select)
+                        if replace_or_insert == 1:
+                            print('数据库原有 %s 的数据，现更新数据库内的数据！' % mail_subject)
+                        elif replace_or_insert == 0:
+                            print('邮件 %s 的相关数据正在保存到数据库！' % mail_subject)
+                        # 使用replace语句代替insert ignore语句，这样的话如果要插入的数据存在主键或者唯一索引相同的情况，
+                        # 这里设置了mail_id主键，自增不用管，mail_subject唯一索引，如果插入的数据mail_subject和原来有相同的情况
+                        # 这样的话，就先删除原有数据，然后再新添加一条，确保数据的实效性，如果用insert ignore这样数据可能一直都是旧数据
+                        # 不存在唯一索引相同的情况的话，replace into 和 insert into等价
+                        self.cursor.execute(
+                            r'replace into chinatelecom_mail_files values(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+                            [0, mail_item['b_mail_subject'],
+                             mail_item['c_mail_from_addr'], mail_item['d_mail_to_addr'],
+                             mail_item['e_mail_date_format'], mail_item['f_mail_file_path'],
+                             mail_item['g_tax_deduction_price'], mail_item['h_value_added_tax'],
+                             mail_item['i_tax_included_price']])
+                        self.conn.commit()
 
-                            # 分别是除税价、增值税和含税价
-                            mail_item['g_tax_deduction_price'] = budget_dict['tax_deduction_price']
-                            mail_item['h_value_added_tax'] = budget_dict['value_added_tax']
-                            mail_item['i_tax_included_price'] = budget_dict['tax_included_price']
+                        # 保存相关的数据到data_to_excel这个列表中
+                        self.data_to_excel.append(mail_item)
+                        flag += 1
 
-                            self.cursor.execute(
-                                r'insert ignore into chinatelecom_mails_files values(%s,%s,%s,%s,%s,%s,%s,%s,%s)',
-                                [0, mail_item['b_mail_subject'],
-                                 mail_item['c_mail_from_addr'], mail_item['d_mail_to_addr'],
-                                 mail_item['e_mail_date_format'], mail_item['f_mail_file_path'],
-                                 mail_item['g_tax_deduction_price'], mail_item['h_value_added_tax'],
-                                 mail_item['i_tax_included_price']])
-                            self.conn.commit()
-                            print('邮件 %s 的相关数据已经保存到了数据库了' % mail_subject)
-                            self.data_to_excel.append(mail_item)
-                            flag += 1
-                            if flag % 8 == 0 and self.data_to_excel:
-                                # 每8个数据保存数据到excel文件
-                                save_to_excel(self.data_to_excel, self.data_for_xls)
-                                print('%s至%s，共%s条符合条件的数据已经保存到了excel中！' % (len(mails), i, flag))
-                                # 清空已经保存的数据
-                                self.data_to_excel.clear()
-                        else:
-                            print('数据库中已存在-%s-的邮件数据库了！' % mail_subject)
+                        # 每8个数据保存数据到excel文件
+                        if flag % 8 == 0 and self.data_to_excel:
+                            save_to_excel(self.data_to_excel, self.data_for_xls)
+                            print('%s至%s，共%s条符合条件的数据已经保存到了excel中！' % (len(mails), i, flag))
+                            # 清空已经保存的数据
+                            self.data_to_excel.clear()
                     except Exception as e:
                         print('因为 %s，保存邮件数据到数据库出错！' % e)
                     time.sleep(random.randint(1, 5) + random.randint(4, 8) / 10)
 
             # 记录已经爬取的邮件的序号，后面就不会重复爬取了
-            if i == self.end + 1:
-                self.save_end_to_settings_file(self.settings_file_path, len(mails))
+            # if i == self.end + 1:
+            #     self.save_end_to_settings_file(self.settings_file_path, len(mails))
             print('邮件附件下载完毕！')
 
         except Exception as e:
@@ -437,4 +441,6 @@ class GetMailFiles():
 if __name__ == '__main__':
     sys.stdout = Logger('all.log', sys.stdout)
     GetMailFiles = GetMailFiles()
+    # GetMailFiles.test()
+    # GetMailFiles.move_database_data()
     GetMailFiles.mail_main()
